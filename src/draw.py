@@ -1,71 +1,49 @@
 #!/usr/bin/env python3
 
-import sys
 import rospy
-import moveit_commander
-import geometry_msgs.msg
+import numpy as np
+from ur_control.arm import Arm
+from ur_control import transformations
 from math import pi, cos, sin
 
 class CircleDrawer(object):
-    def __init__(self):
-        super(CircleDrawer, self).__init__()
+    def __init__(self, arm, radius=0.1, resolution=100):
+        self.arm = arm
+        self.radius = radius
+        self.resolution = resolution
 
-        moveit_commander.roscpp_initialize(sys.argv)
-        rospy.init_node('circle_drawer', anonymous=True)
+    def draw_circle(self):
+        # 원의 중심을 현재 엔드 이펙터 위치로 설정
+        center_pose = self.arm.end_effector()
+        center_x = center_pose[0]
+        center_y = center_pose[1]
+        center_z = center_pose[2]
 
-        robot = moveit_commander.RobotCommander()
-        scene = moveit_commander.PlanningSceneInterface()
-        group_name = "ur3"  
-        self.move_group = moveit_commander.MoveGroupCommander(group_name)
+        # 원 경로 계산
+        for i in range(self.resolution):
+            theta = 2 * pi * i / self.resolution
+            x = center_x + self.radius * cos(theta)
+            y = center_y + self.radius * sin(theta)
+            z = center_z
 
-    def draw_circle(self, radius=0.1, resolution=100, scale=1):
-        waypoints = []
-
-        # 원의 중심을 현재 위치로 설정
-        center_pose = self.move_group.get_current_pose().pose
-        center_x = center_pose.position.x
-        center_y = center_pose.position.y
-        center_z = center_pose.position.z
-
-        # 원의 웨이포인트 생성
-        for i in range(resolution):
-            theta = 2 * pi * i / resolution
-            x = center_x + radius * cos(theta)
-            y = center_y + radius * sin(theta)
-            z = center_z  # 원은 xy 평면에 있음
-
-            pose = geometry_msgs.msg.Pose()
-            pose.position.x = x
-            pose.position.y = y
-            pose.position.z = z
-            pose.orientation = center_pose.orientation
-
-            waypoints.append(pose)
-
-        (plan, fraction) = self.move_group.compute_cartesian_path(
-            waypoints,   # waypoints to follow
-            0.01,        # eef_step
-            0.0)         # jump_threshold
-
-        return plan, fraction
-
-    def execute_plan(self, plan):
-        self.move_group.execute(plan, wait=True)
+            # 새로운 위치로 엔드 이펙터 이동
+            pose = [x, y, z] + list(center_pose[3:])
+            self.arm.set_target_pose_flex(pose, t=0.25)
+            rospy.sleep(0.25)
 
 def main():
-    try:
-        circle_drawer = CircleDrawer()
+    rospy.init_node("draw_circle_with_ur3", log_level=rospy.INFO)
 
-        # 원 그리기
-        rospy.sleep(2)
-        circle_plan, _ = circle_drawer.draw_circle()
-        circle_drawer.execute_plan(circle_plan)
+    # UR3 로봇 팔 초기화
+    arm = Arm(ft_sensor=False, gripper=None,
+              joint_names_prefix=None, robot_urdf="ur3e",
+              robot_urdf_package=None, ee_link=None)
 
-        rospy.spin()
-    except rospy.ROSInterruptException:
-        return
-    except KeyboardInterrupt:
-        return
+    # 원 그리기
+    circle_drawer = CircleDrawer(arm, radius=0.1, resolution=100)
+    circle_drawer.draw_circle()
+
+    print("Circle drawing complete.")
 
 if __name__ == '__main__':
     main()

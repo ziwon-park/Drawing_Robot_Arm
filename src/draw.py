@@ -19,31 +19,38 @@ import cv2
 import getch
 
 
-def process_image(image_path, reduce_factor=1.0):
-    # 이미지 읽기 및 그레이스케일 변환
+def process_image(image_path, resize_factor=1.0):
+    # 이미지 읽기
     image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
+    # 이미지 리사이징
+    if resize_factor != 1.0:
+        new_size = (int(image.shape[1] * resize_factor), int(image.shape[0] * resize_factor))
+        image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+
+    # 선명도 향상을 위한 처리
+    kernel_sharpening = np.array([[-1, -1, -1],
+                                  [-1, 9, -1],
+                                  [-1, -1, -1]])
+    image = cv2.filter2D(image, -1, kernel_sharpening)
 
     # 이진화를 통한 라인 추출
     _, binary = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
-    # 라인 추출을 위한 이미지 처리
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # 윤곽선의 점들을 줄임
-    reduced_contours = []
-    for contour in contours:
-        # 각 윤곽선의 길이에 따라 점의 개수를 줄임
-        contour_length = len(contour)
-        if contour_length > 0:
-            step = int(1 / reduce_factor)
-            reduced_contour = contour[::step]
-            reduced_contours.append(reduced_contour)
+    # 스켈레톤화
+    skeleton = cv2.ximgproc.thinning(binary)
 
-    return reduced_contours
+    # 라인 추출을 위한 이미지 처리 및 계층 정보 획득
+    contours, hierarchy = cv2.findContours(skeleton, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    # 각 선분의 픽셀 좌표 추출
+    line_segments = [cv2.approxPolyDP(contour, 1, False) for contour in contours]
+
+    return line_segments, hierarchy
 
 
 class RobotDrawer(object):
-    def __init__(self, arm, marker_publisher, scale=100):
+    def __init__(self, arm, marker_publisher, scale):
         self.arm = arm
         self.scale = scale
         self.initial_joint_positions = [1.57, -1.9, 1.4, -1.07, -1.57, 0]
@@ -58,6 +65,8 @@ class RobotDrawer(object):
         if len(contours) == 0:
             return
 
+        print("inside draw_path")
+
         marker_id = 0
         current_position = self.arm.end_effector()
         current_x, current_y, current_z = current_position[:3]
@@ -68,19 +77,23 @@ class RobotDrawer(object):
 
         # 로봇 팔의 현재 위치를 contour 시작점으로 설정
         for contour in contours:
-            for point in contour:
+            # Contour의 시작점과 끝점 처리
+            for point_idx, point in enumerate(contour):
+                # if point_idx >= 0 and point_idx <= len(contour):  # 시작점 또는 끝점
                 x, y = point[0]
                 # contour 좌표를 로봇 팔 좌표계로 변환
-                x, y = (x - offset_x) * self.scale + current_x, (y - offset_y) * self.scale + current_y
-                pose = [x, y, current_z] + list(current_position[3:])
+                x, y = (x * self.scale) + current_x, (y * self.scale) + current_y
+
+                # 현재 위치와 목표 위치 출력
                 print("target position is : ", [x, y, current_z])
+
                 # 역기구학 솔루션 찾기 및 로봇 팔 움직임
+                pose = [x, y, current_z] + list(current_position[3:])
                 ik_solution = self.arm._solve_ik(pose)
-                self.arm.set_target_pose_flex(pose, t=1)
 
                 if ik_solution is not None:
-                    print("ik_solution is not None")
                     self.arm.set_target_pose_flex(pose, t=1)
+                    # 마커 발행
                     self.marker_publisher.publish_marker([x, y, current_z], frame_id="base_link", marker_id=marker_id)
                     marker_id += 1
                 else:
@@ -182,12 +195,12 @@ def main():
     marker_publisher = MarkerPublisher()
 
     # 이미지 처리
-    contours = process_image("./src/bulb.png", reduce_factor=0.3)
+    line_segments, hierarchy  = process_image("./src/cat2.png", resize_factor=1)
 
     # 이미지 그리기
-    drawer = RobotDrawer(arm, marker_publisher, scale=0.0005)  # 스케일 조정
+    drawer = RobotDrawer(arm, marker_publisher, scale=0.001)  # 스케일 조정
     drawer.run()
-    drawer.draw_path(contours)
+    drawer.draw_path(line_segments)
 
     # circle_drawer = CircleDrawer(arm, marker_publisher, radius=0.1, resolution=100)
     # circle_drawer.draw_circle()

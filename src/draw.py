@@ -195,7 +195,7 @@ def main():
     marker_publisher = MarkerPublisher()
 
     # 이미지 처리
-    line_segments, hierarchy  = process_image("./src/cat2.png", resize_factor=1)
+    line_segments, hierarchy  = process_image("./src/image/cat2.png", resize_factor=1)
 
     # 이미지 그리기
     drawer = RobotDrawer(arm, marker_publisher, scale=0.001)  # 스케일 조정

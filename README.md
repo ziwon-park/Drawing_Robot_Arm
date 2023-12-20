@@ -5,6 +5,8 @@ This package was made to operate a drawing robot within the ROS environment, uti
 <img src="assets/title.png" width = 400>
 <img src="assets/DRA.gif" width = 700>
 
+you can access to ROS2 version of this package via 'ROS2' branch. 
+
 ## Installation
 
 First, you need to prepare your computer to use cambel UR3 package simulation environment. 
